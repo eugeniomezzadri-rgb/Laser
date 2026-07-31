@@ -18,8 +18,10 @@ if 'sim_idx' not in st.session_state:
     st.session_state.sim_idx = 0
 if 'is_animating' not in st.session_state:
     st.session_state.is_animating = False
-if 'camera_eye' not in st.session_state:
-    st.session_state.camera_eye = dict(x=0, y=-2.5, z=0)
+if 'camera_base' not in st.session_state:
+    st.session_state.camera_base = (0, -2.5, 0)
+if 'zoom_level' not in st.session_state:
+    st.session_state.zoom_level = 1.0
 if 'proj_type' not in st.session_state:
     st.session_state.proj_type = 'orthographic'
 
@@ -65,22 +67,31 @@ if st.session_state.parsed_points:
     
     col_v1, col_v2 = st.sidebar.columns(2)
     if col_v1.button("Vista Y+"):
-        st.session_state.camera_eye = dict(x=0, y=-2.5, z=0)
+        st.session_state.camera_base = (0, -2.5, 0)
     if col_v2.button("Vista Z+ (Alto)"):
-        st.session_state.camera_eye = dict(x=0, y=0, z=2.5)
+        st.session_state.camera_base = (0, 0, 2.5)
         
     col_v3, col_v4 = st.sidebar.columns(2)
     if col_v3.button("Vista X+"):
-        st.session_state.camera_eye = dict(x=-2.5, y=0, z=0)
+        st.session_state.camera_base = (-2.5, 0, 0)
     if col_v4.button("Isometrica"):
-        st.session_state.camera_eye = dict(x=1.5, y=-1.5, z=1.5)
+        st.session_state.camera_base = (1.5, -1.5, 1.5)
+        
+    # Cursore di Zoom stabile
+    st.session_state.zoom_level = st.sidebar.slider(
+        "🔍 Livello Zoom", 
+        min_value=0.2, 
+        max_value=5.0, 
+        value=st.session_state.zoom_level, 
+        step=0.1
+    )
         
     proj_mode = st.sidebar.radio("Proiezione", ["Ortogonale", "Prospettica"], 
                                  index=0 if st.session_state.proj_type == 'orthographic' else 1,
                                  horizontal=True)
     st.session_state.proj_type = 'orthographic' if proj_mode == "Ortogonale" else 'perspective'
 
-    # --- FRAMMENTO PRINCIPALE (Elimina lo sfarfallio aggiornando solo questa sezione) ---
+    # --- FRAMMENTO PRINCIPALE ---
     @st.fragment
     def render_simulation():
         max_p = len(st.session_state.parsed_points) - 1
@@ -133,6 +144,11 @@ if st.session_state.parsed_points:
         # Riquadro Coordinate compatte
         st.info(f"**Coordinate WCS** ➔ X: {x_act:.3f} mm | Y: {y_act:.3f} mm | Z: {z_act:.3f} mm | B: {b_act:.3f}°")
 
+        # Calcolo dinamico della telecamera applicando il fattore di zoom stabile
+        bx, by, bz = st.session_state.camera_base
+        z_factor = st.session_state.zoom_level
+        current_eye = dict(x=bx * z_factor, y=by * z_factor, z=bz * z_factor)
+
         # Estrazione coordinate assolute per il percorso fisso
         sim_idx = st.session_state.sim_idx
         xs = [p['X'] for p in st.session_state.parsed_points]
@@ -183,7 +199,7 @@ if st.session_state.parsed_points:
                 zaxis_title='Z',
                 aspectmode='data',
                 camera=dict(
-                    eye=st.session_state.camera_eye,
+                    eye=current_eye,
                     projection=dict(type=st.session_state.proj_type)
                 )
             ),
@@ -226,7 +242,7 @@ if st.session_state.parsed_points:
         """
         st.markdown(code_html, unsafe_allow_html=True)
         
-        # Gestione ciclo di animazione automatica (Senza sfarfallio globale)
+        # Gestione ciclo di animazione automatica
         if st.session_state.is_animating:
             if st.session_state.sim_idx < max_p:
                 st.session_state.sim_idx += 1

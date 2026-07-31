@@ -2,8 +2,7 @@ import re
 import time
 import numpy as np
 import streamlit as st
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import plotly.graph_objects as go
 
 # Configurazione della pagina a tutto schermo
 st.set_page_config(page_title="Simulatore Percorsi 3D - Web App", layout="wide")
@@ -114,9 +113,6 @@ col_main = st.container()
 
 with col_main:
     if st.session_state.parsed_points:
-        fig = plt.figure(figsize=(10, 6))
-        ax = fig.add_subplot(111, projection='3d')
-        
         sim_idx = st.session_state.sim_idx
         p_act = st.session_state.parsed_points[sim_idx]
         x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
@@ -149,58 +145,73 @@ with col_main:
             else:
                 point_colors.append('blue')   # Futuro
                 
-        # Disegno punti e percorso
-        ax.scatter(trans_xs, trans_ys, trans_zs, c=point_colors, s=15)
-        ax.plot(trans_xs, trans_ys, trans_zs, color='gray', linestyle='--', alpha=0.5)
-        
-        # Numerazione punti
-        for i, (xr, yr, zr) in enumerate(zip(trans_xs, trans_ys, trans_zs)):
-            ax.text(xr, yr, zr, f" {i}", fontsize=6, color='navy')
-            
-        # Utensile fisso all'origine (0,0,0) puntato verso Z+
-        h_len = 100.0
-        r_tip, r_base = 0.1, 7.5
-        h = np.linspace(0, h_len, 15)
-        theta = np.linspace(0, 2 * np.pi, 15)
-        H, Theta = np.meshgrid(h, theta)
-        R = r_tip + (r_base - r_tip) * (H / h_len)
-        X_loc = R * np.cos(Theta)
-        Y_loc = R * np.sin(Theta)
-        Z_loc = H
-        
-        ax.plot_surface(X_loc, Y_loc, Z_loc, color='cyan', alpha=0.4, edgecolor='teal', lw=0.1)
-        ax.scatter([0.0], [0.0], [0.0], color='red', s=100, marker='o')
+        # Creazione grafico interattivo con Plotly
+        fig = go.Figure()
 
-        ax.set_title(f"Simulazione Utensile Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)")
-        ax.set_xlabel("Asse X (mm)")
-        ax.set_ylabel("Asse Y (mm)")
-        ax.set_zlabel("Asse Z (mm)")
+        # Linea del percorso
+        fig.add_trace(go.Scatter3d(
+            x=trans_xs, y=trans_ys, z=trans_zs,
+            mode='lines',
+            line=dict(color='gray', width=2, dash='dash'),
+            name='Percorso'
+        ))
+
+        # Punti del percorso con colori specifici
+        fig.add_trace(go.Scatter3d(
+            x=trans_xs, y=trans_ys, z=trans_zs,
+            mode='markers+text',
+            marker=dict(size=4, color=point_colors),
+            text=[str(i) for i in range(len(trans_xs))],
+            textposition="top center",
+            textfont=dict(size=8, color='navy'),
+            name='Punti'
+        ))
+
+        # Utensile fisso all'origine (0,0,0)
+        fig.add_trace(go.Scatter3d(
+            x=[0.0], y=[0.0], z=[0.0],
+            mode='markers',
+            marker=dict(size=8, color='red', symbol='diamond'),
+            name='Utensile Fisso (Z+)'
+        ))
+
+        # Impostazioni di layout, scala uguale per gli assi e vista iniziale da Y+
+        fig.update_layout(
+            title=dict(text=f"Simulazione Utensile Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
+            scene=dict(
+                xaxis_title='Asse X (mm)',
+                yaxis_title='Asse Y (mm)',
+                zaxis_title='Asse Z (mm)',
+                aspectmode='equal',  # Assicura la stessa scala tra gli assi
+                camera=dict(
+                    eye=dict(x=0, y=-2.5, z=0)  # Vista di default iniziale orientata su Y+
+                )
+            ),
+            margin=dict(l=0, r=0, b=0, t=40),
+            height=600
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
         
-        # Impostazioni Vista e Proiezione Ortogonale Richieste
-        ax.view_init(elev=0, azim=-90)
-        try:
-            ax.set_proj_type('ortho')
-        except AttributeError:
-            pass
-        
-        st.pyplot(fig)
-        
-        # --- Visualizzatore Codice SPF in basso ---
+        # --- Visualizzatore Codice SPF in basso con evidenziazione attiva ---
         st.subheader("📜 Visualizzatore Codice SPF")
-        code_container = st.container(height=250)
         
         active_line_idx = p_act['line_index']
-        code_lines_formatted = []
+        
+        # Costruzione di un blocco HTML/CSS scorrevole per evidenziare la riga attiva
+        code_html = """
+        <div style='height: 250px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 13px;'>
+        """
         
         for idx, line in enumerate(st.session_state.lines):
             clean_line = line.strip()
             if idx == active_line_idx:
-                code_lines_formatted.append(f"➡️ **[RIGA {idx+1}]  {clean_line}**")
+                code_html += f"<div style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 3px 6px; margin: 2px 0; border-left: 4px solid #ff9800;'>&rarr; [Riga {idx+1}] {clean_line}</div>"
             else:
-                code_lines_formatted.append(f"&nbsp;&nbsp;&nbsp;&nbsp;[Riga {idx+1}]  {clean_line}")
+                code_html += f"<div style='color: #495057; padding: 2px 6px; margin: 2px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;[Riga {idx+1}] {clean_line}</div>"
                 
-        code_text_display = "\n\n".join(code_lines_formatted)
-        code_container.markdown(code_text_display, unsafe_allow_html=True)
+        code_html += "</div>"
+        st.markdown(code_html, unsafe_allow_html=True)
         
         # Gestione ciclo di animazione automatica (Start / Pause)
         if st.session_state.is_animating:

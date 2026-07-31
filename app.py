@@ -187,7 +187,7 @@ with col_main:
 
         st.plotly_chart(fig, use_container_width=True, config=config_mobile)
         
-        # --- Visualizzatore Codice SPF compatto per Mobile ---
+        # --- Visualizzatore Codice SPF pulito (Senza numeri di riga) ---
         st.subheader("📜 Visualizzatore Codice SPF")
         
         active_line_idx = p_act['line_index']
@@ -199,9 +199,9 @@ with col_main:
         for idx, line in enumerate(st.session_state.lines):
             clean_line = line.strip()
             if idx == active_line_idx:
-                code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; margin: 1px 0; border-left: 3px solid #ff9800;'>&rarr; [Riga {idx+1}] {clean_line}</div>"
+                code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; margin: 1px 0; border-left: 3px solid #ff9800;'>&rarr; {clean_line}</div>"
             else:
-                code_html += f"<div style='color: #495057; padding: 2px 4px; margin: 1px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;[Riga {idx+1}] {clean_line}</div>"
+                code_html += f"<div style='color: #495057; padding: 2px 4px; margin: 1px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
                 
         code_html += """
         </div>

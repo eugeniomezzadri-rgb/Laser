@@ -175,14 +175,14 @@ with col_main:
             name='Utensile Fisso (Z+)'
         ))
 
-        # Impostazioni di layout, scala uguale per gli assi e vista iniziale da Y+
+        # Impostazioni di layout con aspectmode='data'
         fig.update_layout(
             title=dict(text=f"Simulazione Utensile Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
             scene=dict(
                 xaxis_title='Asse X (mm)',
                 yaxis_title='Asse Y (mm)',
                 zaxis_title='Asse Z (mm)',
-                aspectmode='equal',  # Assicura la stessa scala tra gli assi
+                aspectmode='data',  # Corretto per Plotly
                 camera=dict(
                     eye=dict(x=0, y=-2.5, z=0)  # Vista di default iniziale orientata su Y+
                 )
@@ -198,7 +198,6 @@ with col_main:
         
         active_line_idx = p_act['line_index']
         
-        # Costruzione di un blocco HTML/CSS scorrevole per evidenziare la riga attiva
         code_html = """
         <div style='height: 250px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 13px;'>
         """

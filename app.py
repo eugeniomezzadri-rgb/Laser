@@ -117,6 +117,14 @@ with col_main:
         p_act = st.session_state.parsed_points[sim_idx]
         x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
         
+        # Calcolo dei limiti globali del percorso per bloccare i range in modo stabile
+        all_x = np.array([p['X'] for p in st.session_state.parsed_points])
+        all_y = np.array([p['Y'] for p in st.session_state.parsed_points])
+        all_z = np.array([p['Z'] for p in st.session_state.parsed_points])
+        
+        max_span = max(all_x.max() - all_x.min(), all_y.max() - all_y.min(), all_z.max() - all_z.min())
+        half_span = max_span * 0.7  # Margine di respiro per la visualizzazione
+        
         # Trasformazione cinematica inversa (Utensile Fisso, Path Movente)
         b_rad = np.radians(b_act)
         cos_b = np.cos(-b_rad)
@@ -175,17 +183,20 @@ with col_main:
             name='Utensile Fisso (Z+)'
         ))
 
-        # Impostazioni di layout con vista ortogonale e zoom adattivo
+        # Impostazioni di layout con range fissi per evitare sbalzi di zoom
         fig.update_layout(
             title=dict(text=f"Simulazione Utensile Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
             scene=dict(
                 xaxis_title='Asse X (mm)',
                 yaxis_title='Asse Y (mm)',
                 zaxis_title='Asse Z (mm)',
-                aspectmode='data',  # Adatta le proporzioni ai dati reali
+                xaxis=dict(range=[-half_span, half_span], autorange=False),
+                yaxis=dict(range=[-half_span, half_span], autorange=False),
+                zaxis=dict(range=[-half_span, half_span], autorange=False),
+                aspectmode='cube',
                 camera=dict(
                     eye=dict(x=0, y=-2.5, z=0),  # Vista iniziale da Y+
-                    projection=dict(type='orthographic')  # Vista ortogonale senza distorsione prospettica
+                    projection=dict(type='orthographic')  # Vista ortogonale stabile
                 )
             ),
             margin=dict(l=0, r=0, b=0, t=40),
@@ -213,7 +224,6 @@ with col_main:
         code_html += """
         </div>
         <script>
-            // Script JavaScript per forzare lo scorrimento automatico sulla riga attiva
             const activeLine = document.getElementById('active-line');
             if (activeLine) {
                 activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });

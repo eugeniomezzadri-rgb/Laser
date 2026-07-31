@@ -108,7 +108,7 @@ if st.session_state.parsed_points:
     st.sidebar.subheader("📍 Coordinate WCS (Pezzo Fermo)")
     st.sidebar.info(f"**X:** {x_act:.3f} mm\n\n**Y:** {y_act:.3f} mm\n\n**Z:** {z_act:.3f} mm\n\n**B:** {b_act:.3f}°")
 
-# --- LAYOUT PRINCIPALE: Grafico 3D Sopra, Codice Sotto ---
+# --- LAYOUT PRINCIPALE: Grafico 3D Ottimizzato per Mobile ---
 col_main = st.container()
 
 with col_main:
@@ -161,40 +161,47 @@ with col_main:
             name='Posizione Utensile'
         ))
 
-        # Impostazioni di layout con zoom stabile e vista iniziale da Y+
+        # Impostazioni di layout ottimizzate per schermi verticali (Mobile-friendly)
         fig.update_layout(
-            title=dict(text=f"Simulazione Percorso Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
+            title=dict(text=f"Simulazione - Punto: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=13)),
             scene=dict(
-                xaxis_title='Asse X (mm)',
-                yaxis_title='Asse Y (mm)',
-                zaxis_title='Asse Z (mm)',
-                aspectmode='data',  # Uniforma le proporzioni reali in modo stabile
+                xaxis_title='X',
+                yaxis_title='Y',
+                zaxis_title='Z',
+                aspectmode='data',
                 camera=dict(
                     eye=dict(x=0, y=-2.5, z=0),  # Vista iniziale da Y+
-                    projection=dict(type='orthographic')  # Vista ortogonale senza distorsioni
+                    projection=dict(type='orthographic')
                 )
             ),
-            margin=dict(l=0, r=0, b=0, t=40),
-            height=600
+            margin=dict(l=0, r=0, b=0, t=30),
+            height=420  # Altezza ridotta per non occupare tutto lo schermo del telefono
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        # Configurazione touch avanzata per dispositivi mobili
+        config_mobile = {
+            'scrollZoom': True,
+            'displayModeBar': 'hover',
+            'responsive': True
+        }
+
+        st.plotly_chart(fig, use_container_width=True, config=config_mobile)
         
-        # --- Visualizzatore Codice SPF con Auto-Scroll ed Evidenziazione ---
+        # --- Visualizzatore Codice SPF compatto per Mobile ---
         st.subheader("📜 Visualizzatore Codice SPF")
         
         active_line_idx = p_act['line_index']
         
         code_html = """
-        <div id='code-container' style='height: 250px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 13px;'>
+        <div id='code-container' style='height: 200px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>
         """
         
         for idx, line in enumerate(st.session_state.lines):
             clean_line = line.strip()
             if idx == active_line_idx:
-                code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 3px 6px; margin: 2px 0; border-left: 4px solid #ff9800;'>&rarr; [Riga {idx+1}] {clean_line}</div>"
+                code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; margin: 1px 0; border-left: 3px solid #ff9800;'>&rarr; [Riga {idx+1}] {clean_line}</div>"
             else:
-                code_html += f"<div style='color: #495057; padding: 2px 6px; margin: 2px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;[Riga {idx+1}] {clean_line}</div>"
+                code_html += f"<div style='color: #495057; padding: 2px 4px; margin: 1px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;[Riga {idx+1}] {clean_line}</div>"
                 
         code_html += """
         </div>

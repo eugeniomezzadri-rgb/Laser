@@ -60,12 +60,9 @@ if uploaded_file is not None:
         st.session_state.is_animating = False
 
 if st.session_state.parsed_points:
-    max_p = len(st.session_state.parsed_points) - 1
-    
     st.sidebar.markdown("---")
     st.sidebar.header("🎥 Controllo Viste 3D")
     
-    # Pulsanti rapidi per le viste
     col_v1, col_v2 = st.sidebar.columns(2)
     if col_v1.button("Vista Y+"):
         st.session_state.camera_eye = dict(x=0, y=-2.5, z=0)
@@ -78,72 +75,66 @@ if st.session_state.parsed_points:
     if col_v4.button("Isometrica"):
         st.session_state.camera_eye = dict(x=1.5, y=-1.5, z=1.5)
         
-    # Selezione tipo di proiezione
     proj_mode = st.sidebar.radio("Proiezione", ["Ortogonale", "Prospettica"], 
                                  index=0 if st.session_state.proj_type == 'orthographic' else 1,
                                  horizontal=True)
     st.session_state.proj_type = 'orthographic' if proj_mode == "Ortogonale" else 'perspective'
 
-    st.sidebar.markdown("---")
-    st.sidebar.header("🕹️ Controlli di Movimento")
-    
-    # Pulsanti Step-by-Step
-    col_b1, col_b2 = st.sidebar.columns(2)
-    if col_b1.button("◀ Step Indietro"):
-        st.session_state.is_animating = False
-        if st.session_state.sim_idx > 0:
-            st.session_state.sim_idx -= 1
-        else:
-            st.session_state.sim_idx = max_p
-            
-    if col_b2.button("Step Avanti ▶"):
-        st.session_state.is_animating = False
-        if st.session_state.sim_idx < max_p:
-            st.session_state.sim_idx += 1
-        else:
+    # --- FRAMMENTO PRINCIPALE (Elimina lo sfarfallio aggiornando solo questa sezione) ---
+    @st.fragment
+    def render_simulation():
+        max_p = len(st.session_state.parsed_points) - 1
+        
+        st.markdown("---")
+        st.subheader("🕹️ Controlli di Movimento")
+        
+        # Pulsanti Step-by-Step
+        col_b1, col_b2, col_b3 = st.columns(3)
+        if col_b1.button("◀ Step Indietro"):
+            st.session_state.is_animating = False
+            if st.session_state.sim_idx > 0:
+                st.session_state.sim_idx -= 1
+            else:
+                st.session_state.sim_idx = max_p
+                
+        if col_b2.button("Step Avanti ▶"):
+            st.session_state.is_animating = False
+            if st.session_state.sim_idx < max_p:
+                st.session_state.sim_idx += 1
+            else:
+                st.session_state.sim_idx = 0
+
+        if col_b3.button("⏮ Riavvolgi"):
+            st.session_state.is_animating = False
             st.session_state.sim_idx = 0
 
-    if st.sidebar.button("⏮ Riavvolgi a Inizio"):
-        st.session_state.is_animating = False
-        st.session_state.sim_idx = 0
+        # Pulsanti Start e Pausa
+        col_p1, col_p2 = st.columns(2)
+        if col_p1.button("▶ Avvia"):
+            if st.session_state.sim_idx >= max_p:
+                st.session_state.sim_idx = 0
+            st.session_state.is_animating = True
+        if col_p2.button("⏸ Pausa"):
+            st.session_state.is_animating = False
 
-    # Pulsanti Start e Pausa
-    col_p1, col_p2 = st.sidebar.columns(2)
-    if col_p1.button("▶ Avvia"):
-        if st.session_state.sim_idx >= max_p:
-            st.session_state.sim_idx = 0
-        st.session_state.is_animating = True
-    if col_p2.button("⏸ Pausa"):
-        st.session_state.is_animating = False
-
-    # Cursore di simulazione
-    sim_idx = st.sidebar.slider(
-        "Cursore Simulazione Percorso", 
-        0, max_p, 
-        st.session_state.sim_idx
-    )
-    if sim_idx != st.session_state.sim_idx:
-        st.session_state.is_animating = False
-        st.session_state.sim_idx = sim_idx
-    
-    p_act = st.session_state.parsed_points[st.session_state.sim_idx]
-    x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
-    
-    # Riquadro Coordinate Assolute
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📍 Coordinate WCS (Pezzo Fermo)")
-    st.sidebar.info(f"**X:** {x_act:.3f} mm\n\n**Y:** {y_act:.3f} mm\n\n**Z:** {z_act:.3f} mm\n\n**B:** {b_act:.3f}°")
-
-# --- LAYOUT PRINCIPALE: Grafico 3D Ottimizzato per Mobile ---
-col_main = st.container()
-
-with col_main:
-    if st.session_state.parsed_points:
-        sim_idx = st.session_state.sim_idx
-        p_act = st.session_state.parsed_points[sim_idx]
+        # Cursore di simulazione
+        sim_idx = st.slider(
+            "Cursore Simulazione Percorso", 
+            0, max_p, 
+            st.session_state.sim_idx
+        )
+        if sim_idx != st.session_state.sim_idx:
+            st.session_state.is_animating = False
+            st.session_state.sim_idx = sim_idx
+        
+        p_act = st.session_state.parsed_points[st.session_state.sim_idx]
         x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
         
+        # Riquadro Coordinate compatte
+        st.info(f"**Coordinate WCS** ➔ X: {x_act:.3f} mm | Y: {y_act:.3f} mm | Z: {z_act:.3f} mm | B: {b_act:.3f}°")
+
         # Estrazione coordinate assolute per il percorso fisso
+        sim_idx = st.session_state.sim_idx
         xs = [p['X'] for p in st.session_state.parsed_points]
         ys = [p['Y'] for p in st.session_state.parsed_points]
         zs = [p['Z'] for p in st.session_state.parsed_points]
@@ -160,7 +151,6 @@ with col_main:
         # Creazione grafico interattivo con Plotly
         fig = go.Figure()
 
-        # Linea del percorso fisso
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='lines',
@@ -168,7 +158,6 @@ with col_main:
             name='Percorso'
         ))
 
-        # Punti del percorso
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='markers+text',
@@ -179,7 +168,6 @@ with col_main:
             name='Punti'
         ))
 
-        # Utensile in movimento sulla posizione attuale
         fig.add_trace(go.Scatter3d(
             x=[x_act], y=[y_act], z=[z_act],
             mode='markers',
@@ -187,7 +175,6 @@ with col_main:
             name='Posizione Utensile'
         ))
 
-        # Impostazioni di layout con controlli di vista dinamici dallo stato
         fig.update_layout(
             title=dict(text=f"Simulazione - Punto: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=13)),
             scene=dict(
@@ -201,10 +188,9 @@ with col_main:
                 )
             ),
             margin=dict(l=0, r=0, b=0, t=30),
-            height=420
+            height=400
         )
 
-        # Configurazione touch avanzata per dispositivi mobili
         config_mobile = {
             'scrollZoom': True,
             'displayModeBar': 'hover',
@@ -219,7 +205,7 @@ with col_main:
         active_line_idx = p_act['line_index']
         
         code_html = """
-        <div id='code-container' style='height: 200px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>
+        <div id='code-container' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>
         """
         
         for idx, line in enumerate(st.session_state.lines):
@@ -240,14 +226,16 @@ with col_main:
         """
         st.markdown(code_html, unsafe_allow_html=True)
         
-        # Gestione ciclo di animazione automatica (Start / Pause)
+        # Gestione ciclo di animazione automatica (Senza sfarfallio globale)
         if st.session_state.is_animating:
             if st.session_state.sim_idx < max_p:
                 st.session_state.sim_idx += 1
-                time.sleep(0.08)
+                time.sleep(0.05)
                 st.rerun()
             else:
                 st.session_state.is_animating = False
-        
-    else:
-        st.info("👈 Per iniziare, carica un file SPF dal pannello di sinistra.")
+
+    render_simulation()
+    
+else:
+    st.info("👈 Per iniziare, carica un file SPF dal pannello di sinistra.")

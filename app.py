@@ -18,6 +18,10 @@ if 'sim_idx' not in st.session_state:
     st.session_state.sim_idx = 0
 if 'is_animating' not in st.session_state:
     st.session_state.is_animating = False
+if 'camera_eye' not in st.session_state:
+    st.session_state.camera_eye = dict(x=0, y=-2.5, z=0)
+if 'proj_type' not in st.session_state:
+    st.session_state.proj_type = 'orthographic'
 
 # --- SIDEBAR: Controlli e Caricamento File ---
 st.sidebar.header("📁 Controllo File")
@@ -58,6 +62,28 @@ if uploaded_file is not None:
 if st.session_state.parsed_points:
     max_p = len(st.session_state.parsed_points) - 1
     
+    st.sidebar.markdown("---")
+    st.sidebar.header("🎥 Controllo Viste 3D")
+    
+    # Pulsanti rapidi per le viste
+    col_v1, col_v2 = st.sidebar.columns(2)
+    if col_v1.button("Vista Y+"):
+        st.session_state.camera_eye = dict(x=0, y=-2.5, z=0)
+    if col_v2.button("Vista Z+ (Alto)"):
+        st.session_state.camera_eye = dict(x=0, y=0, z=2.5)
+        
+    col_v3, col_v4 = st.sidebar.columns(2)
+    if col_v3.button("Vista X+"):
+        st.session_state.camera_eye = dict(x=-2.5, y=0, z=0)
+    if col_v4.button("Isometrica"):
+        st.session_state.camera_eye = dict(x=1.5, y=-1.5, z=1.5)
+        
+    # Selezione tipo di proiezione
+    proj_mode = st.sidebar.radio("Proiezione", ["Ortogonale", "Prospettica"], 
+                                 index=0 if st.session_state.proj_type == 'orthographic' else 1,
+                                 horizontal=True)
+    st.session_state.proj_type = 'orthographic' if proj_mode == "Ortogonale" else 'perspective'
+
     st.sidebar.markdown("---")
     st.sidebar.header("🕹️ Controlli di Movimento")
     
@@ -161,7 +187,7 @@ with col_main:
             name='Posizione Utensile'
         ))
 
-        # Impostazioni di layout ottimizzate per schermi verticali (Mobile-friendly)
+        # Impostazioni di layout con controlli di vista dinamici dallo stato
         fig.update_layout(
             title=dict(text=f"Simulazione - Punto: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=13)),
             scene=dict(
@@ -170,12 +196,12 @@ with col_main:
                 zaxis_title='Z',
                 aspectmode='data',
                 camera=dict(
-                    eye=dict(x=0, y=-2.5, z=0),  # Vista iniziale da Y+
-                    projection=dict(type='orthographic')
+                    eye=st.session_state.camera_eye,
+                    projection=dict(type=st.session_state.proj_type)
                 )
             ),
             margin=dict(l=0, r=0, b=0, t=30),
-            height=420  # Altezza ridotta per non occupare tutto lo schermo del telefono
+            height=420
         )
 
         # Configurazione touch avanzata per dispositivi mobili
@@ -187,7 +213,7 @@ with col_main:
 
         st.plotly_chart(fig, use_container_width=True, config=config_mobile)
         
-        # --- Visualizzatore Codice SPF pulito (Senza numeri di riga) ---
+        # --- Visualizzatore Codice SPF pulito ---
         st.subheader("📜 Visualizzatore Codice SPF")
         
         active_line_idx = p_act['line_index']

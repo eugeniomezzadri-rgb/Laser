@@ -1,4 +1,5 @@
 import re
+import time
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -16,13 +17,14 @@ if 'lines' not in st.session_state:
     st.session_state.lines = []
 if 'sim_idx' not in st.session_state:
     st.session_state.sim_idx = 0
+if 'is_animating' not in st.session_state:
+    st.session_state.is_animating = False
 
 # --- SIDEBAR: Controlli e Caricamento File ---
 st.sidebar.header("📁 Controllo File")
 uploaded_file = st.sidebar.file_uploader("Carica file SPF", type=["SPF", "spf", "txt"])
 
 if uploaded_file is not None:
-    # Legge il file caricato
     file_bytes = uploaded_file.getvalue()
     decoded_lines = file_bytes.decode("utf-8").splitlines(keepends=True)
     
@@ -52,6 +54,7 @@ if uploaded_file is not None:
                 })
         st.session_state.parsed_points = parsed
         st.session_state.sim_idx = 0
+        st.session_state.is_animating = False
 
 if st.session_state.parsed_points:
     max_p = len(st.session_state.parsed_points) - 1
@@ -62,29 +65,43 @@ if st.session_state.parsed_points:
     # Pulsanti Step-by-Step
     col_b1, col_b2 = st.sidebar.columns(2)
     if col_b1.button("◀ Step Indietro"):
+        st.session_state.is_animating = False
         if st.session_state.sim_idx > 0:
             st.session_state.sim_idx -= 1
         else:
             st.session_state.sim_idx = max_p
             
     if col_b2.button("Step Avanti ▶"):
+        st.session_state.is_animating = False
         if st.session_state.sim_idx < max_p:
             st.session_state.sim_idx += 1
         else:
             st.session_state.sim_idx = 0
 
     if st.sidebar.button("⏮ Riavvolgi a Inizio"):
+        st.session_state.is_animating = False
         st.session_state.sim_idx = 0
 
-    # Cursore di simulazione collegato allo stato
+    # Pulsanti Start e Pausa
+    col_p1, col_p2 = st.sidebar.columns(2)
+    if col_p1.button("▶ Avvia"):
+        if st.session_state.sim_idx >= max_p:
+            st.session_state.sim_idx = 0
+        st.session_state.is_animating = True
+    if col_p2.button("⏸ Pausa"):
+        st.session_state.is_animating = False
+
+    # Cursore di simulazione
     sim_idx = st.sidebar.slider(
         "Cursore Simulazione Percorso", 
         0, max_p, 
         st.session_state.sim_idx
     )
-    st.session_state.sim_idx = sim_idx
+    if sim_idx != st.session_state.sim_idx:
+        st.session_state.is_animating = False
+        st.session_state.sim_idx = sim_idx
     
-    p_act = st.session_state.parsed_points[sim_idx]
+    p_act = st.session_state.parsed_points[st.session_state.sim_idx]
     x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
     
     # Riquadro Coordinate Assolute
@@ -158,7 +175,13 @@ with col_main:
         ax.set_xlabel("Asse X (mm)")
         ax.set_ylabel("Asse Y (mm)")
         ax.set_zlabel("Asse Z (mm)")
-        ax.view_init(elev=0, azim=-90) # Vista da Y+
+        
+        # Impostazioni Vista e Proiezione Ortogonale Richieste
+        ax.view_init(elev=0, azim=-90)
+        try:
+            ax.set_proj_type('ortho')
+        except AttributeError:
+            pass
         
         st.pyplot(fig)
         
@@ -178,6 +201,15 @@ with col_main:
                 
         code_text_display = "\n\n".join(code_lines_formatted)
         code_container.markdown(code_text_display, unsafe_allow_html=True)
+        
+        # Gestione ciclo di animazione automatica (Start / Pause)
+        if st.session_state.is_animating:
+            if st.session_state.sim_idx < max_p:
+                st.session_state.sim_idx += 1
+                time.sleep(0.08)
+                st.rerun()
+            else:
+                st.session_state.is_animating = False
         
     else:
         st.info("👈 Per iniziare, carica un file SPF dal pannello di sinistra.")

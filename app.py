@@ -117,35 +117,13 @@ with col_main:
         p_act = st.session_state.parsed_points[sim_idx]
         x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
         
-        # Calcolo dei limiti globali del percorso per bloccare i range in modo stabile
-        all_x = np.array([p['X'] for p in st.session_state.parsed_points])
-        all_y = np.array([p['Y'] for p in st.session_state.parsed_points])
-        all_z = np.array([p['Z'] for p in st.session_state.parsed_points])
+        # Estrazione coordinate assolute per il percorso fisso
+        xs = [p['X'] for p in st.session_state.parsed_points]
+        ys = [p['Y'] for p in st.session_state.parsed_points]
+        zs = [p['Z'] for p in st.session_state.parsed_points]
         
-        max_span = max(all_x.max() - all_x.min(), all_y.max() - all_y.min(), all_z.max() - all_z.min())
-        half_span = max_span * 0.7  # Margine di respiro per la visualizzazione
-        
-        # Trasformazione cinematica inversa (Utensile Fisso, Path Movente)
-        b_rad = np.radians(b_act)
-        cos_b = np.cos(-b_rad)
-        sin_b = np.sin(-b_rad)
-        
-        trans_xs, trans_ys, trans_zs = [], [], []
         point_colors = []
-        
-        for i, p in enumerate(st.session_state.parsed_points):
-            dx = p['X'] - x_act
-            dy = p['Y'] - y_act
-            dz = p['Z'] - z_act
-            
-            xr = dx * cos_b + dz * sin_b
-            yr = dy
-            zr = -dx * sin_b + dz * cos_b
-            
-            trans_xs.append(xr)
-            trans_ys.append(yr)
-            trans_zs.append(zr)
-            
+        for i in range(len(st.session_state.parsed_points)):
             if i < sim_idx:
                 point_colors.append('green')  # Già passato
             elif i == sim_idx:
@@ -156,47 +134,44 @@ with col_main:
         # Creazione grafico interattivo con Plotly
         fig = go.Figure()
 
-        # Linea del percorso
+        # Linea del percorso fisso
         fig.add_trace(go.Scatter3d(
-            x=trans_xs, y=trans_ys, z=trans_zs,
+            x=xs, y=ys, z=zs,
             mode='lines',
             line=dict(color='gray', width=2, dash='dash'),
             name='Percorso'
         ))
 
-        # Punti del percorso con colori specifici
+        # Punti del percorso
         fig.add_trace(go.Scatter3d(
-            x=trans_xs, y=trans_ys, z=trans_zs,
+            x=xs, y=ys, z=zs,
             mode='markers+text',
             marker=dict(size=4, color=point_colors),
-            text=[str(i) for i in range(len(trans_xs))],
+            text=[str(i) for i in range(len(xs))],
             textposition="top center",
             textfont=dict(size=8, color='navy'),
             name='Punti'
         ))
 
-        # Utensile fisso all'origine (0,0,0)
+        # Utensile in movimento sulla posizione attuale
         fig.add_trace(go.Scatter3d(
-            x=[0.0], y=[0.0], z=[0.0],
+            x=[x_act], y=[y_act], z=[z_act],
             mode='markers',
-            marker=dict(size=8, color='red', symbol='diamond'),
-            name='Utensile Fisso (Z+)'
+            marker=dict(size=10, color='red', symbol='diamond'),
+            name='Posizione Utensile'
         ))
 
-        # Impostazioni di layout con range fissi per evitare sbalzi di zoom
+        # Impostazioni di layout con zoom stabile e vista iniziale da Y+
         fig.update_layout(
-            title=dict(text=f"Simulazione Utensile Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
+            title=dict(text=f"Simulazione Percorso Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
             scene=dict(
                 xaxis_title='Asse X (mm)',
                 yaxis_title='Asse Y (mm)',
                 zaxis_title='Asse Z (mm)',
-                xaxis=dict(range=[-half_span, half_span], autorange=False),
-                yaxis=dict(range=[-half_span, half_span], autorange=False),
-                zaxis=dict(range=[-half_span, half_span], autorange=False),
-                aspectmode='cube',
+                aspectmode='data',  # Uniforma le proporzioni reali in modo stabile
                 camera=dict(
                     eye=dict(x=0, y=-2.5, z=0),  # Vista iniziale da Y+
-                    projection=dict(type='orthographic')  # Vista ortogonale stabile
+                    projection=dict(type='orthographic')  # Vista ortogonale senza distorsioni
                 )
             ),
             margin=dict(l=0, r=0, b=0, t=40),
@@ -205,7 +180,7 @@ with col_main:
 
         st.plotly_chart(fig, use_container_width=True)
         
-        # --- Visualizzatore Codice SPF in basso con Auto-Scroll ed Evidenziazione ---
+        # --- Visualizzatore Codice SPF con Auto-Scroll ed Evidenziazione ---
         st.subheader("📜 Visualizzatore Codice SPF")
         
         active_line_idx = p_act['line_index']

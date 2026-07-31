@@ -175,16 +175,17 @@ with col_main:
             name='Utensile Fisso (Z+)'
         ))
 
-        # Impostazioni di layout con aspectmode='data'
+        # Impostazioni di layout con vista ortogonale e zoom adattivo
         fig.update_layout(
             title=dict(text=f"Simulazione Utensile Fisso - Punto Attivo: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=14)),
             scene=dict(
                 xaxis_title='Asse X (mm)',
                 yaxis_title='Asse Y (mm)',
                 zaxis_title='Asse Z (mm)',
-                aspectmode='data',  # Corretto per Plotly
+                aspectmode='data',  # Adatta le proporzioni ai dati reali
                 camera=dict(
-                    eye=dict(x=0, y=-2.5, z=0)  # Vista di default iniziale orientata su Y+
+                    eye=dict(x=0, y=-2.5, z=0),  # Vista iniziale da Y+
+                    projection=dict(type='orthographic')  # Vista ortogonale senza distorsione prospettica
                 )
             ),
             margin=dict(l=0, r=0, b=0, t=40),
@@ -193,23 +194,32 @@ with col_main:
 
         st.plotly_chart(fig, use_container_width=True)
         
-        # --- Visualizzatore Codice SPF in basso con evidenziazione attiva ---
+        # --- Visualizzatore Codice SPF in basso con Auto-Scroll ed Evidenziazione ---
         st.subheader("📜 Visualizzatore Codice SPF")
         
         active_line_idx = p_act['line_index']
         
         code_html = """
-        <div style='height: 250px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 13px;'>
+        <div id='code-container' style='height: 250px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 13px;'>
         """
         
         for idx, line in enumerate(st.session_state.lines):
             clean_line = line.strip()
             if idx == active_line_idx:
-                code_html += f"<div style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 3px 6px; margin: 2px 0; border-left: 4px solid #ff9800;'>&rarr; [Riga {idx+1}] {clean_line}</div>"
+                code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 3px 6px; margin: 2px 0; border-left: 4px solid #ff9800;'>&rarr; [Riga {idx+1}] {clean_line}</div>"
             else:
                 code_html += f"<div style='color: #495057; padding: 2px 6px; margin: 2px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;[Riga {idx+1}] {clean_line}</div>"
                 
-        code_html += "</div>"
+        code_html += """
+        </div>
+        <script>
+            // Script JavaScript per forzare lo scorrimento automatico sulla riga attiva
+            const activeLine = document.getElementById('active-line');
+            if (activeLine) {
+                activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        </script>
+        """
         st.markdown(code_html, unsafe_allow_html=True)
         
         # Gestione ciclo di animazione automatica (Start / Pause)

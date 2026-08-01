@@ -23,9 +23,11 @@ if 'camera_base' not in st.session_state:
     st.session_state.camera_base = dict(x=0, y=-2.5, z=0)
 if 'proj_type' not in st.session_state:
     st.session_state.proj_type = 'orthographic'
-# uirevision è il "trucco" per impedire che la vista si resetti da sola
 if 'ui_rev' not in st.session_state:
     st.session_state.ui_rev = 0
+# Nuova variabile: dice a Plotly di aggiornare la camera SOLO quando lo vogliamo noi
+if 'force_view_update' not in st.session_state:
+    st.session_state.force_view_update = True
 
 # --- SIDEBAR: Controlli e Caricamento File ---
 st.sidebar.header("📁 Controllo File")
@@ -39,7 +41,7 @@ if uploaded_file is not None:
         st.session_state.lines = decoded_lines
         
         parsed = []
-        last_b = 0.0  # Memoria dell'ultima B incontrata
+        last_b = 0.0  
         
         for idx, line in enumerate(st.session_state.lines):
             xm = re.search(r'X([+-]?\d*\.?\d+)', line)
@@ -62,40 +64,49 @@ if uploaded_file is not None:
         st.session_state.parsed_points = parsed
         st.session_state.sim_idx = 0
         st.session_state.is_animating = False
-        st.session_state.ui_rev += 1 # Reset della camera al nuovo caricamento
+        st.session_state.ui_rev += 1 
+        st.session_state.force_view_update = True # Reset vista al nuovo caricamento
 
 if st.session_state.parsed_points:
     st.sidebar.markdown("---")
     st.sidebar.header("🎥 Controllo Viste 3D")
     
-    # Pulsanti di vista: aggiornando 'ui_rev', forziamo Plotly ad applicare la nuova camera
+    # Pulsanti di vista: attivano l'aggiornamento forzato della telecamera
     col_v1, col_v2 = st.sidebar.columns(2)
     if col_v1.button("Vista Y+"):
         st.session_state.camera_base = dict(x=0, y=-2.5, z=0)
         st.session_state.ui_rev += 1
+        st.session_state.force_view_update = True
     if col_v2.button("Vista Z+ (Alto)"):
         st.session_state.camera_base = dict(x=0, y=0, z=2.5)
         st.session_state.ui_rev += 1
+        st.session_state.force_view_update = True
         
     col_v3, col_v4 = st.sidebar.columns(2)
     if col_v3.button("Vista X+"):
         st.session_state.camera_base = dict(x=-2.5, y=0, z=0)
         st.session_state.ui_rev += 1
+        st.session_state.force_view_update = True
     if col_v4.button("Isometrica"):
         st.session_state.camera_base = dict(x=1.5, y=-1.5, z=1.5)
         st.session_state.ui_rev += 1
+        st.session_state.force_view_update = True
         
     proj_mode = st.sidebar.radio("Proiezione", ["Ortogonale", "Prospettica"], 
                                  index=0 if st.session_state.proj_type == 'orthographic' else 1,
                                  horizontal=True)
+    
+    # Se cambiamo proiezione, forziamo l'aggiornamento della vista
     if proj_mode == "Ortogonale" and st.session_state.proj_type != 'orthographic':
         st.session_state.proj_type = 'orthographic'
         st.session_state.ui_rev += 1
+        st.session_state.force_view_update = True
     elif proj_mode == "Prospettica" and st.session_state.proj_type != 'perspective':
         st.session_state.proj_type = 'perspective'
         st.session_state.ui_rev += 1
+        st.session_state.force_view_update = True
 
-    # --- FRAMMENTO PRINCIPALE (Aggiornamento parziale fluido) ---
+    # --- FRAMMENTO PRINCIPALE ---
     @st.fragment
     def render_simulation():
         max_p = len(st.session_state.parsed_points) - 1
@@ -184,7 +195,6 @@ if st.session_state.parsed_points:
 
         # 3. Traccia Cono Utensile (Tiene conto dell'asse B)
         b_rad = math.radians(b_act)
-        # Il vettore punta verso la superficie (asse Z negativo se B = 0)
         u_dir = math.sin(b_rad)
         v_dir = 0
         w_dir = -math.cos(b_rad)
@@ -192,15 +202,14 @@ if st.session_state.parsed_points:
         fig.add_trace(go.Cone(
             x=[x_act], y=[y_act], z=[z_act],
             u=[u_dir], v=[v_dir], w=[w_dir],
-            anchor='tip',         # La punta del cono tocca la coordinata esatta
+            anchor='tip',         
             sizemode='absolute',
-            sizeref=20,           # Grandezza del cono (puoi aumentare o diminuire questo valore)
+            sizeref=20,           
             showscale=False,
-            colorscale=[[0, '#FFA500'], [1, '#FF4500']], # Colore arancione sfumato
+            colorscale=[[0, '#FFA500'], [1, '#FF4500']], 
             name='Utensile'
         ))
         
-        # Aggiungiamo anche un piccolo pallino rosso esattamente sul vertice
         fig.add_trace(go.Scatter3d(
             x=[x_act], y=[y_act], z=[z_act],
             mode='markers',
@@ -208,26 +217,33 @@ if st.session_state.parsed_points:
             name='Punta'
         ))
 
-        # Layout con uirevision per NON resettare la vista durante lo zoom/rotazione manuale
+        # Configurazione base della Scena
+        scene_config = dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z',
+            aspectmode='data'
+        )
+
+        # SEGRETO PER LO ZOOM: Applichiamo la telecamera SOLO se è stato premuto un bottone di vista!
+        if st.session_state.force_view_update:
+            scene_config['camera'] = dict(
+                eye=st.session_state.camera_base,
+                projection=dict(type=st.session_state.proj_type)
+            )
+            # Resettiamo il flag, così dal prossimo frame Plotly NON forzerà più la vista
+            # e lascerà a te il controllo manuale!
+            st.session_state.force_view_update = False
+
         fig.update_layout(
-            uirevision=st.session_state.ui_rev, # IL SEGRETO CONTRO LO SFARFALLIO
+            uirevision=st.session_state.ui_rev,
             title=dict(text=f"Simulazione - Punto: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=13)),
-            scene=dict(
-                xaxis_title='X',
-                yaxis_title='Y',
-                zaxis_title='Z',
-                aspectmode='data',
-                camera=dict(
-                    eye=st.session_state.camera_base,
-                    projection=dict(type=st.session_state.proj_type)
-                )
-            ),
+            scene=scene_config,
             margin=dict(l=0, r=0, b=0, t=30),
             height=420,
             showlegend=False
         )
 
-        # Abilita lo zoom in pagina nativo
         config_mobile = {
             'scrollZoom': True,
             'displayModeBar': 'hover',

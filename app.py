@@ -18,6 +18,10 @@ if 'camera_base' not in st.session_state:
     st.session_state.camera_base = dict(x=0, y=-2.5, z=0)
 if 'proj_type' not in st.session_state:
     st.session_state.proj_type = 'orthographic'
+if 'show_gcode' not in st.session_state:
+    st.session_state.show_gcode = True
+if 'sim_idx' not in st.session_state:
+    st.session_state.sim_idx = 0
 
 # --- 1. UTENSILE FISSO VERTICALE (Punta orientata verso Z-) ---
 def get_fixed_vertical_tool(x0, y0, z0, cone_len=15, cone_rad=5, box_w=20, box_h=20, box_len=35):
@@ -64,7 +68,7 @@ def rotate_point_around_table_y(x, y, z, b_deg):
     rz = -x * sin_b + z * cos_b
     return rx, ry, rz
 
-# --- SIDEBAR: Caricamento File e Telecamera ---
+# --- SIDEBAR: Controllo File e Visualizzazione ---
 st.sidebar.header("📁 Controllo File")
 uploaded_file = st.sidebar.file_uploader("Carica file SPF", type=["SPF", "spf", "txt"])
 
@@ -96,6 +100,7 @@ if uploaded_file is not None:
                     'B': last_b
                 })
         st.session_state.parsed_points = parsed
+        st.session_state.sim_idx = 0
         st.session_state.camera_base = dict(x=0, y=-2.5, z=0)
 
 if st.session_state.parsed_points:
@@ -119,6 +124,10 @@ if st.session_state.parsed_points:
                                  horizontal=True)
     st.session_state.proj_type = 'orthographic' if proj_mode == "Ortogonale" else 'perspective'
 
+    st.sidebar.markdown("---")
+    st.sidebar.header("📜 Opzioni Codice")
+    st.session_state.show_gcode = st.sidebar.checkbox("Mostra Codice G-code", value=st.session_state.show_gcode)
+
     # --- SIMULAZIONE E TRASFORMAZIONE ---
     pts_data = st.session_state.parsed_points
     
@@ -128,7 +137,6 @@ if st.session_state.parsed_points:
         pts_rot = [rotate_point_around_table_y(pt['X'], pt['Y'], pt['Z'], b_act) for pt in pts_data]
         transformed_frames_pts.append(pts_rot)
 
-    # IMPOSTAZIONE LIMITI FISSI VIEWPORT: [-350, 350] SU TUTTI GLI ASSI
     LIMIT_MIN = -350.0
     LIMIT_MAX = 350.0
 
@@ -144,9 +152,10 @@ if st.session_state.parsed_points:
         x=frame0_pts[:, 0], y=frame0_pts[:, 1], z=frame0_pts[:, 2], mode='lines',
         line=dict(color='#888888', width=2, dash='dash'), name='Percorso (Tavola)'
     )
+    # DIMENSIONE PUNTI RIDOTTA A 2
     trace_points = go.Scatter3d(
         x=frame0_pts[:, 0], y=frame0_pts[:, 1], z=frame0_pts[:, 2], mode='markers',
-        marker=dict(size=4, color='#2196F3'), name='Punti'
+        marker=dict(size=2, color='#2196F3'), name='Punti'
     )
     trace_cone = go.Mesh3d(
         x=c_x, y=c_y, z=c_z, i=c_i, j=c_j, k=c_k,
@@ -176,7 +185,7 @@ if st.session_state.parsed_points:
         frames.append(go.Frame(
             data=[
                 go.Scatter3d(x=frame_k_pts[:, 0], y=frame_k_pts[:, 1], z=frame_k_pts[:, 2], mode='lines', line=dict(color='#888888', width=2, dash='dash')),
-                go.Scatter3d(x=frame_k_pts[:, 0], y=frame_k_pts[:, 1], z=frame_k_pts[:, 2], mode='markers', marker=dict(size=4, color=p_colors)),
+                go.Scatter3d(x=frame_k_pts[:, 0], y=frame_k_pts[:, 1], z=frame_k_pts[:, 2], mode='markers', marker=dict(size=2, color=p_colors)),
                 go.Mesh3d(x=cx_k, y=cy_k, z=cz_k, i=c_i, j=c_j, k=c_k, color='#FF5722', opacity=0.95),
                 go.Mesh3d(x=bx_k, y=by_k, z=bz_k, i=b_i, j=b_j, k=b_k, color='#78909C', opacity=0.85),
                 trace_origin
@@ -188,6 +197,17 @@ if st.session_state.parsed_points:
         data=[trace_path, trace_points, trace_cone, trace_box, trace_origin],
         frames=frames
     )
+
+    # SELETTORE VELOCITÀ NEL PLAYER E CONTROLLI
+    speed_factor = st.select_slider(
+        "⚡ Velocità Animazione Player:",
+        options=[0.2, 0.5, 1.0, 2.0, 5.0],
+        value=1.0,
+        format_func=lambda x: f"{x}x (" + ("Fast" if x > 1 else ("Slow" if x < 1 else "Normal") + ")")
+    )
+    
+    base_duration = 60
+    adjusted_duration = max(10, int(base_duration / speed_factor))
 
     fig.update_layout(
         scene=dict(
@@ -206,7 +226,7 @@ if st.session_state.parsed_points:
                 {
                     "label": "▶ AVVIA ANIMAZIONE TAVOLA",
                     "method": "animate",
-                    "args": [None, {"frame": {"duration": 60, "redraw": True}, "fromcurrent": True, "transition": {"duration": 0}}]
+                    "args": [None, {"frame": {"duration": adjusted_duration, "redraw": True}, "fromcurrent": True, "transition": {"duration": 0}}]
                 },
                 {
                     "label": "⏸ PAUSA",
@@ -229,13 +249,34 @@ if st.session_state.parsed_points:
 
     st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
 
-    # Visualizzatore Codice
-    with st.expander("📜 Visualizzatore Codice SPF (G-code)", expanded=True):
-        code_html = "<div style='height: 150px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>"
-        for line in st.session_state.lines:
-            code_html += f"<div style='color: #495057; padding: 1px 4px;'>{line.strip()}</div>"
-        code_html += "</div>"
-        st.markdown(code_html, unsafe_allow_html=True)
+    # CURSORE PUNTO PER ISPEZIONE MANUALE & SINCRONIZZAZIONE
+    selected_idx = st.slider("Ispeziona punto / blocco specifico:", 0, len(pts_data) - 1, st.session_state.sim_idx)
+    st.session_state.sim_idx = selected_idx
+
+    # VISUALIZZATORE CODICE OPZIONALE CON EVIDENZIAZIONE E AUTO-SCROLL
+    if st.session_state.show_gcode:
+        with st.expander("📜 Visualizzatore Codice SPF (G-code)", expanded=True):
+            p_sel = pts_data[st.session_state.sim_idx]
+            active_line_idx = p_sel['line_index']
+            
+            code_html = "<div id='gcode-box' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>"
+            for idx, line in enumerate(st.session_state.lines):
+                clean_line = line.strip()
+                if idx == active_line_idx:
+                    code_html += f"<div id='active-gcode-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; border-left: 4px solid #ff9800;'>&rarr; {clean_line}</div>"
+                else:
+                    code_html += f"<div style='color: #495057; padding: 2px 4px;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
+            
+            code_html += """
+            </div>
+            <script>
+                var activeElem = document.getElementById('active-gcode-line');
+                if (activeElem) {
+                    activeElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            </script>
+            """
+            st.markdown(code_html, unsafe_allow_html=True)
 
 else:
     st.info("👈 Per iniziare, carica un file SPF dal pannello di sinistra.")

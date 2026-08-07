@@ -105,6 +105,8 @@ if uploaded_file is not None:
         st.session_state.camera_base = dict(x=0, y=-2.5, z=0)
 
 if st.session_state.parsed_points:
+    pts_data = st.session_state.parsed_points
+
     st.sidebar.markdown("---")
     st.sidebar.header("🎥 Controllo Viste 3D")
     
@@ -129,33 +131,51 @@ if st.session_state.parsed_points:
     st.sidebar.header("📜 Opzioni Codice")
     st.session_state.show_gcode = st.sidebar.checkbox("Mostra Codice G-code", value=st.session_state.show_gcode)
 
-    # --- SIMULAZIONE E TRASFORMAZIONE ---
-    pts_data = st.session_state.parsed_points
-    
+    # --- CONTROLLO VELOCITÀ & CURSORE TEMPO REALE ---
+    col_ctrl1, col_ctrl2 = st.columns([1, 2])
+    with col_ctrl1:
+        speed_factor = st.select_slider(
+            "⚡ Velocità Animazione Player:",
+            options=[0.2, 0.5, 1.0, 2.0, 5.0],
+            value=1.0,
+            format_func=lambda x: f"{x}x"
+        )
+    with col_ctrl2:
+        selected_idx = st.slider(
+            "🎛️ Posizione Utensile Manuale:", 
+            0, len(pts_data) - 1, 
+            st.session_state.sim_idx
+        )
+        st.session_state.sim_idx = selected_idx
+
+    # --- CALCOLO FRAME PER ANIMAZIONE AUTOMATICA + TRACCIA CORRENTE ---
     transformed_frames_pts = []
     for p in pts_data:
         b_act = p['B']
         pts_rot = [rotate_point_around_table_y(pt['X'], pt['Y'], pt['Z'], b_act) for pt in pts_data]
         transformed_frames_pts.append(pts_rot)
 
+    # Dati posizione selezionata per lo stato iniziale/manuale
+    frame_curr_pts = np.array(transformed_frames_pts[selected_idx])
+    xk_rot, yk_rot, zk_rot = frame_curr_pts[selected_idx]
+
+    tool_curr = get_fixed_vertical_tool(xk_rot, yk_rot, zk_rot)
+    c_x, c_y, c_z, c_i, c_j, c_k = tool_curr['cone']
+    b_x, b_y, b_z, b_i, b_j, b_k = tool_curr['box']
+
+    p_colors_curr = ['#4CAF50' if i < selected_idx else ('#F44336' if i == selected_idx else '#2196F3') for i in range(len(pts_data))]
+
     LIMIT_MIN = -350.0
     LIMIT_MAX = 350.0
 
-    # Frame 0
-    frame0_pts = np.array(transformed_frames_pts[0])
-    x0_rot, y0_rot, z0_rot = frame0_pts[0]
-    
-    tool0 = get_fixed_vertical_tool(x0_rot, y0_rot, z0_rot)
-    c_x, c_y, c_z, c_i, c_j, c_k = tool0['cone']
-    b_x, b_y, b_z, b_i, b_j, b_k = tool0['box']
-
+    # Tracce Base
     trace_path = go.Scatter3d(
-        x=frame0_pts[:, 0], y=frame0_pts[:, 1], z=frame0_pts[:, 2], mode='lines',
+        x=frame_curr_pts[:, 0], y=frame_curr_pts[:, 1], z=frame_curr_pts[:, 2], mode='lines',
         line=dict(color='#888888', width=2, dash='dash'), name='Percorso (Tavola)'
     )
     trace_points = go.Scatter3d(
-        x=frame0_pts[:, 0], y=frame0_pts[:, 1], z=frame0_pts[:, 2], mode='markers',
-        marker=dict(size=2, color='#2196F3'), name='Punti'
+        x=frame_curr_pts[:, 0], y=frame_curr_pts[:, 1], z=frame_curr_pts[:, 2], mode='markers',
+        marker=dict(size=2, color=p_colors_curr), name='Punti'
     )
     trace_cone = go.Mesh3d(
         x=c_x, y=c_y, z=c_z, i=c_i, j=c_j, k=c_k,
@@ -171,12 +191,13 @@ if st.session_state.parsed_points:
         text=["Centro Tavola (0,0,0)"], textposition="bottom center", name='Centro Tavola'
     )
 
+    # Costruzione dei Frame per l'animazione automatica del pulsante Play
     frames = []
-    for k, p in enumerate(pts_data):
+    for k in range(len(pts_data)):
         frame_k_pts = np.array(transformed_frames_pts[k])
-        xk_rot, yk_rot, zk_rot = frame_k_pts[k]
+        xk, yk, zk = frame_k_pts[k]
         
-        t_data = get_fixed_vertical_tool(xk_rot, yk_rot, zk_rot)
+        t_data = get_fixed_vertical_tool(xk, yk, zk)
         cx_k, cy_k, cz_k, _, _, _ = t_data['cone']
         bx_k, by_k, bz_k, _, _, _ = t_data['box']
         
@@ -198,14 +219,6 @@ if st.session_state.parsed_points:
         frames=frames
     )
 
-    # SELETTORE VELOCITÀ NEL PLAYER E CONTROLLI
-    speed_factor = st.select_slider(
-        "⚡ Velocità Animazione Player:",
-        options=[0.2, 0.5, 1.0, 2.0, 5.0],
-        value=1.0,
-        format_func=lambda x: f"{x}x (" + ("Fast" if x > 1 else ("Slow" if x < 1 else "Normal") + ")")
-    )
-    
     base_duration = 60
     adjusted_duration = max(10, int(base_duration / speed_factor))
 
@@ -249,27 +262,21 @@ if st.session_state.parsed_points:
 
     st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
 
-    # CURSORE PUNTO
-    selected_idx = st.slider("Ispeziona punto / blocco specifico:", 0, len(pts_data) - 1, st.session_state.sim_idx)
-    st.session_state.sim_idx = selected_idx
-    
-    # VISUALIZZATORE NATIVO COORDINATE
-    p_curr = pts_data[st.session_state.sim_idx]
-    
+    # VISUALIZZATORE COORDINATE
+    curr_point = pts_data[selected_idx]
     st.markdown("---")
-    st.subheader("📌 Coordinate Punto Selezionato")
+    st.subheader("📌 Coordinate Punto Corrente")
     col_x, col_y, col_z, col_b = st.columns(4)
-    col_x.metric("Asse X", f"{p_curr['X']:.3f} mm")
-    col_y.metric("Asse Y", f"{p_curr['Y']:.3f} mm")
-    col_z.metric("Asse Z", f"{p_curr['Z']:.3f} mm")
-    col_b.metric("Asse Tavola (B)", f"{p_curr['B']:.2f}°")
+    col_x.metric("Asse X", f"{curr_point['X']:.3f} mm")
+    col_y.metric("Asse Y", f"{curr_point['Y']:.3f} mm")
+    col_z.metric("Asse Z", f"{curr_point['Z']:.3f} mm")
+    col_b.metric("Asse Tavola (B)", f"{curr_point['B']:.2f}°")
 
-    # VISUALIZZATORE CODICE OPZIONALE CON AUTO-SCROLL GARANTITO VIA IFRAME
+    # VISUALIZZATORE CODICE OPZIONALE CON AUTO-SCROLL
     if st.session_state.show_gcode:
         st.markdown("### 📜 Codice G-code Sincronizzato")
-        active_line_idx = p_curr['line_index']
+        active_line_idx = curr_point['line_index']
         
-        # Generazione HTML + JS nativo isolato che forza lo scroll al blocco attivo
         lines_html = ""
         for idx, line in enumerate(st.session_state.lines):
             clean_line = line.strip()

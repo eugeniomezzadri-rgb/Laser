@@ -2,6 +2,7 @@ import re
 import math
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.graph_objects as go
 
 # Configurazione della pagina
@@ -152,7 +153,6 @@ if st.session_state.parsed_points:
         x=frame0_pts[:, 0], y=frame0_pts[:, 1], z=frame0_pts[:, 2], mode='lines',
         line=dict(color='#888888', width=2, dash='dash'), name='Percorso (Tavola)'
     )
-    # DIMENSIONE PUNTI RIDOTTA A 2
     trace_points = go.Scatter3d(
         x=frame0_pts[:, 0], y=frame0_pts[:, 1], z=frame0_pts[:, 2], mode='markers',
         marker=dict(size=2, color='#2196F3'), name='Punti'
@@ -249,34 +249,70 @@ if st.session_state.parsed_points:
 
     st.plotly_chart(fig, use_container_width=True, config={'responsive': True})
 
-    # CURSORE PUNTO PER ISPEZIONE MANUALE & SINCRONIZZAZIONE
+    # CURSORE PUNTO
     selected_idx = st.slider("Ispeziona punto / blocco specifico:", 0, len(pts_data) - 1, st.session_state.sim_idx)
     st.session_state.sim_idx = selected_idx
+    
+    # VISUALIZZATORE NATIVO COORDINATE
+    p_curr = pts_data[st.session_state.sim_idx]
+    
+    st.markdown("---")
+    st.subheader("📌 Coordinate Punto Selezionato")
+    col_x, col_y, col_z, col_b = st.columns(4)
+    col_x.metric("Asse X", f"{p_curr['X']:.3f} mm")
+    col_y.metric("Asse Y", f"{p_curr['Y']:.3f} mm")
+    col_z.metric("Asse Z", f"{p_curr['Z']:.3f} mm")
+    col_b.metric("Asse Tavola (B)", f"{p_curr['B']:.2f}°")
 
-    # VISUALIZZATORE CODICE OPZIONALE CON EVIDENZIAZIONE E AUTO-SCROLL
+    # VISUALIZZATORE CODICE OPZIONALE CON AUTO-SCROLL GARANTITO VIA IFRAME
     if st.session_state.show_gcode:
-        with st.expander("📜 Visualizzatore Codice SPF (G-code)", expanded=True):
-            p_sel = pts_data[st.session_state.sim_idx]
-            active_line_idx = p_sel['line_index']
-            
-            code_html = "<div id='gcode-box' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>"
-            for idx, line in enumerate(st.session_state.lines):
-                clean_line = line.strip()
-                if idx == active_line_idx:
-                    code_html += f"<div id='active-gcode-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; border-left: 4px solid #ff9800;'>&rarr; {clean_line}</div>"
-                else:
-                    code_html += f"<div style='color: #495057; padding: 2px 4px;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
-            
-            code_html += """
+        st.markdown("### 📜 Codice G-code Sincronizzato")
+        active_line_idx = p_curr['line_index']
+        
+        # Generazione HTML + JS nativo isolato che forza lo scroll al blocco attivo
+        lines_html = ""
+        for idx, line in enumerate(st.session_state.lines):
+            clean_line = line.strip()
+            if idx == active_line_idx:
+                lines_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 4px 8px; border-left: 5px solid #ff9800;'>&rarr; {clean_line}</div>"
+            else:
+                lines_html += f"<div style='color: #333; padding: 2px 8px;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
+        
+        custom_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{
+                    margin: 0;
+                    font-family: monospace;
+                    font-size: 13px;
+                }}
+                #gcode-container {{
+                    height: 180px;
+                    overflow-y: auto;
+                    background-color: #f8f9fa;
+                    border: 1px solid #ced4da;
+                    border-radius: 5px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div id="gcode-container">
+                {lines_html}
             </div>
             <script>
-                var activeElem = document.getElementById('active-gcode-line');
-                if (activeElem) {
-                    activeElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                window.onload = function() {{
+                    var active = document.getElementById('active-line');
+                    if (active) {{
+                        active.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                    }}
+                }};
             </script>
-            """
-            st.markdown(code_html, unsafe_allow_html=True)
+        </body>
+        </html>
+        """
+        components.html(custom_html, height=200)
 
 else:
     st.info("👈 Per iniziare, carica un file SPF dal pannello di sinistra.")

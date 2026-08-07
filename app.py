@@ -25,9 +25,73 @@ if 'proj_type' not in st.session_state:
     st.session_state.proj_type = 'orthographic'
 if 'ui_rev' not in st.session_state:
     st.session_state.ui_rev = 0
-# Nuova variabile: dice a Plotly di aggiornare la camera SOLO quando lo vogliamo noi
 if 'force_view_update' not in st.session_state:
     st.session_state.force_view_update = True
+if 'show_code' not in st.session_state:
+    st.session_state.show_code = True
+
+# --- FUNZIONE PER GENERARE L'UTENSILE 3D (CONO + PARALLELEPIPEDA) ---
+def get_3d_tool_mesh(x0, y0, z0, b_deg, cone_len=15, cone_rad=5, box_w=20, box_h=20, box_len=35):
+    """
+    Crea le mesh 3D per l'utensile composto da:
+    1. Un cono di taglio alla punta
+    2. Un parallelepipedo (blocco/mandrino) collegato al cono
+    Orientati secondo l'angolo dell'asse B.
+    """
+    b_rad = math.radians(b_deg)
+    cos_b, sin_b = math.cos(b_rad), math.sin(b_rad)
+    
+    def transform(pts):
+        pts = np.array(pts)
+        # Rotazione attorno all'asse Y (B) e traslazione a WCS (x0, y0, z0)
+        rx = pts[:, 0] * cos_b + pts[:, 2] * sin_b + x0
+        ry = pts[:, 1] + y0
+        rz = -pts[:, 0] * sin_b + pts[:, 2] * cos_b + z0
+        return rx, ry, rz
+
+    # 1. Geometria del Cono
+    n_pts = 16
+    angles = np.linspace(0, 2 * np.pi, n_pts, endpoint=False)
+    cone_pts = [[0, 0, 0]]  # Punta utensile
+    for a in angles:
+        cone_pts.append([cone_rad * math.cos(a), cone_rad * math.sin(a), cone_len])
+    
+    c_x, c_y, c_z = transform(cone_pts)
+    c_i, c_j, c_k = [], [], []
+    for m in range(1, n_pts + 1):
+        next_m = 1 if m == n_pts else m + 1
+        c_i.append(0)
+        c_j.append(m)
+        c_k.append(next_m)
+        
+    cone_mesh = go.Mesh3d(
+        x=c_x, y=c_y, z=c_z,
+        i=c_i, j=c_j, k=c_k,
+        color='#FF5722', name='Punta Utensile', opacity=0.95
+    )
+
+    # 2. Geometria del Parallelepipedo (Corpo / Mandrino)
+    hw, hh = box_w / 2.0, box_h / 2.0
+    z1, z2 = cone_len, cone_len + box_len
+    
+    box_pts = [
+        [-hw, -hh, z1], [hw, -hh, z1], [hw, hh, z1], [-hw, hh, z1],  # Base inferiore
+        [-hw, -hh, z2], [hw, -hh, z2], [hw, hh, z2], [-hw, hh, z2]   # Base superiore
+    ]
+    b_x, b_y, b_z = transform(box_pts)
+    
+    b_i = [0, 0, 4, 4, 0, 0, 3, 3, 1, 1, 2, 2]
+    b_j = [1, 2, 5, 6, 4, 7, 2, 6, 5, 6, 3, 7]
+    b_k = [2, 3, 6, 7, 7, 3, 6, 7, 6, 2, 7, 6]
+    
+    box_mesh = go.Mesh3d(
+        x=b_x, y=b_y, z=b_z,
+        i=b_i, j=b_j, k=b_k,
+        color='#78909C', name='Mandrino / Testa', opacity=0.85
+    )
+
+    return [cone_mesh, box_mesh]
+
 
 # --- SIDEBAR: Controlli e Caricamento File ---
 st.sidebar.header("📁 Controllo File")
@@ -65,15 +129,15 @@ if uploaded_file is not None:
         st.session_state.sim_idx = 0
         st.session_state.is_animating = False
         st.session_state.ui_rev += 1 
-        st.session_state.force_view_update = True # Reset vista al nuovo caricamento
+        st.session_state.camera_base = dict(x=0, y=-2.5, z=0)  # Default Vista Y+
+        st.session_state.force_view_update = True  # Forziamo il reset della vista sull'estensione
 
 if st.session_state.parsed_points:
     st.sidebar.markdown("---")
     st.sidebar.header("🎥 Controllo Viste 3D")
     
-    # Pulsanti di vista: attivano l'aggiornamento forzato della telecamera
     col_v1, col_v2 = st.sidebar.columns(2)
-    if col_v1.button("Vista Y+"):
+    if col_v1.button("Vista Y+ (Default)"):
         st.session_state.camera_base = dict(x=0, y=-2.5, z=0)
         st.session_state.ui_rev += 1
         st.session_state.force_view_update = True
@@ -96,7 +160,6 @@ if st.session_state.parsed_points:
                                  index=0 if st.session_state.proj_type == 'orthographic' else 1,
                                  horizontal=True)
     
-    # Se cambiamo proiezione, forziamo l'aggiornamento della vista
     if proj_mode == "Ortogonale" and st.session_state.proj_type != 'orthographic':
         st.session_state.proj_type = 'orthographic'
         st.session_state.ui_rev += 1
@@ -106,6 +169,11 @@ if st.session_state.parsed_points:
         st.session_state.ui_rev += 1
         st.session_state.force_view_update = True
 
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Opzioni Simulazione")
+    sim_speed = st.sidebar.slider("Velocità Animazione (secondi)", 0.01, 0.30, 0.05, 0.01)
+    st.session_state.show_code = st.sidebar.toggle("Mostra Codice G-code", value=st.session_state.show_code)
+
     # --- FRAMMENTO PRINCIPALE ---
     @st.fragment
     def render_simulation():
@@ -114,7 +182,6 @@ if st.session_state.parsed_points:
         st.markdown("---")
         st.subheader("🕹️ Controlli di Movimento")
         
-        # Pulsanti Step-by-Step
         col_b1, col_b2, col_b3 = st.columns(3)
         if col_b1.button("◀ Step Indietro"):
             st.session_state.is_animating = False
@@ -134,7 +201,6 @@ if st.session_state.parsed_points:
             st.session_state.is_animating = False
             st.session_state.sim_idx = 0
 
-        # Pulsanti Start e Pausa
         col_p1, col_p2 = st.columns(2)
         if col_p1.button("▶ Avvia"):
             if st.session_state.sim_idx >= max_p:
@@ -143,7 +209,6 @@ if st.session_state.parsed_points:
         if col_p2.button("⏸ Pausa"):
             st.session_state.is_animating = False
 
-        # Cursore di simulazione
         sim_idx = st.slider(
             "Cursore Simulazione Percorso", 
             0, max_p, 
@@ -156,21 +221,32 @@ if st.session_state.parsed_points:
         p_act = st.session_state.parsed_points[st.session_state.sim_idx]
         x_act, y_act, z_act, b_act = p_act['X'], p_act['Y'], p_act['Z'], p_act['B']
         
-        # Riquadro Coordinate
         st.info(f"**Coordinate WCS** ➔ X: {x_act:.3f} mm | Y: {y_act:.3f} mm | Z: {z_act:.3f} mm | B: {b_act:.3f}°")
 
         xs = [p['X'] for p in st.session_state.parsed_points]
         ys = [p['Y'] for p in st.session_state.parsed_points]
         zs = [p['Z'] for p in st.session_state.parsed_points]
         
+        # --- CALCOLO ESTENSIONE COMPLETA DEI PUNTI (ZOOM SU ESTENSIONE) ---
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        z_min, z_max = min(zs), max(zs)
+        
+        # Calcolo dimensione massima per mantenere l'aspetto proporzionale
+        max_dim = max(x_max - x_min, y_max - y_min, z_max - z_min, 20.0)
+        pad = max_dim * 0.15  # 15% di margine extra attorno ai punti
+        
+        cx, cy, cz = (x_min + x_max)/2, (y_min + y_max)/2, (z_min + z_max)/2
+        half_len = (max_dim / 2) + pad
+
         point_colors = []
         for i in range(len(st.session_state.parsed_points)):
             if i < sim_idx:
-                point_colors.append('green')
+                point_colors.append('#4CAF50')  # Verde (percorso eseguito)
             elif i == sim_idx:
-                point_colors.append('red')
+                point_colors.append('#F44336')  # Rosso (punto attuale)
             else:
-                point_colors.append('blue')
+                point_colors.append('#2196F3')  # Blu (punti futuri)
                 
         fig = go.Figure()
 
@@ -178,7 +254,7 @@ if st.session_state.parsed_points:
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='lines',
-            line=dict(color='gray', width=2, dash='dash'),
+            line=dict(color='#888888', width=2, dash='dash'),
             name='Percorso'
         ))
 
@@ -189,27 +265,16 @@ if st.session_state.parsed_points:
             marker=dict(size=4, color=point_colors),
             text=[str(i) for i in range(len(xs))],
             textposition="top center",
-            textfont=dict(size=8, color='navy'),
+            textfont=dict(size=8, color='#1A237E'),
             name='Punti'
         ))
 
-        # 3. Traccia Cono Utensile (Tiene conto dell'asse B)
-        b_rad = math.radians(b_act)
-        u_dir = math.sin(b_rad)
-        v_dir = 0
-        w_dir = -math.cos(b_rad)
+        # 3. Traccia Utensile 3D (Cono + Parallelepipedo)
+        tool_meshes = get_3d_tool_mesh(x_act, y_act, z_act, b_act)
+        for mesh in tool_meshes:
+            fig.add_trace(mesh)
         
-        fig.add_trace(go.Cone(
-            x=[x_act], y=[y_act], z=[z_act],
-            u=[u_dir], v=[v_dir], w=[w_dir],
-            anchor='tip',         
-            sizemode='absolute',
-            sizeref=20,           
-            showscale=False,
-            colorscale=[[0, '#FFA500'], [1, '#FF4500']], 
-            name='Utensile'
-        ))
-        
+        # 4. Marker Punta Utensile
         fig.add_trace(go.Scatter3d(
             x=[x_act], y=[y_act], z=[z_act],
             mode='markers',
@@ -217,30 +282,28 @@ if st.session_state.parsed_points:
             name='Punta'
         ))
 
-        # Configurazione base della Scena
+        # Impostazione Bounding Box per garantire lo Zoom all'Estensione
         scene_config = dict(
-            xaxis_title='X',
-            yaxis_title='Y',
-            zaxis_title='Z',
-            aspectmode='data'
+            xaxis=dict(title='X (mm)', range=[cx - half_len, cx + half_len]),
+            yaxis=dict(title='Y (mm)', range=[cy - half_len, cy + half_len]),
+            zaxis=dict(title='Z (mm)', range=[cz - half_len, cz + half_len]),
+            aspectmode='cube'
         )
 
-        # SEGRETO PER LO ZOOM: Applichiamo la telecamera SOLO se è stato premuto un bottone di vista!
+        # Gestione mirata della camera per evitare il reset della vista durante la rotazione dell'utente
         if st.session_state.force_view_update:
             scene_config['camera'] = dict(
                 eye=st.session_state.camera_base,
                 projection=dict(type=st.session_state.proj_type)
             )
-            # Resettiamo il flag, così dal prossimo frame Plotly NON forzerà più la vista
-            # e lascerà a te il controllo manuale!
             st.session_state.force_view_update = False
 
         fig.update_layout(
-            uirevision=st.session_state.ui_rev,
+            uirevision=st.session_state.ui_rev,  # Mantiene lo zoom e la rotazione manuale dell'utente!
             title=dict(text=f"Simulazione - Punto: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=13)),
             scene=scene_config,
             margin=dict(l=0, r=0, b=0, t=30),
-            height=420,
+            height=480,
             showlegend=False
         )
 
@@ -252,38 +315,38 @@ if st.session_state.parsed_points:
 
         st.plotly_chart(fig, use_container_width=True, config=config_mobile)
         
-        # --- Visualizzatore Codice SPF ---
-        st.subheader("📜 Visualizzatore Codice SPF")
-        
-        active_line_idx = p_act['line_index']
-        
-        code_html = """
-        <div id='code-container' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>
-        """
-        
-        for idx, line in enumerate(st.session_state.lines):
-            clean_line = line.strip()
-            if idx == active_line_idx:
-                code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; margin: 1px 0; border-left: 3px solid #ff9800;'>&rarr; {clean_line}</div>"
-            else:
-                code_html += f"<div style='color: #495057; padding: 2px 4px; margin: 1px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
+        # --- Visualizzatore Codice SPF (Richiudibile) ---
+        if st.session_state.show_code:
+            with st.expander("📜 Visualizzatore Codice SPF (G-code)", expanded=True):
+                active_line_idx = p_act['line_index']
                 
-        code_html += """
-        </div>
-        <script>
-            const activeLine = document.getElementById('active-line');
-            if (activeLine) {
-                activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        </script>
-        """
-        st.markdown(code_html, unsafe_allow_html=True)
+                code_html = """
+                <div id='code-container' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>
+                """
+                
+                for idx, line in enumerate(st.session_state.lines):
+                    clean_line = line.strip()
+                    if idx == active_line_idx:
+                        code_html += f"<div id='active-line' style='background-color: #ffeb3b; color: #000; font-weight: bold; padding: 2px 4px; margin: 1px 0; border-left: 3px solid #ff9800;'>&rarr; {clean_line}</div>"
+                    else:
+                        code_html += f"<div style='color: #495057; padding: 2px 4px; margin: 1px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
+                        
+                code_html += """
+                </div>
+                <script>
+                    const activeLine = document.getElementById('active-line');
+                    if (activeLine) {
+                        activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                </script>
+                """
+                st.markdown(code_html, unsafe_allow_html=True)
         
         # Loop Animazione
         if st.session_state.is_animating:
             if st.session_state.sim_idx < max_p:
                 st.session_state.sim_idx += 1
-                time.sleep(0.05)
+                time.sleep(sim_speed)
                 st.rerun()
             else:
                 st.session_state.is_animating = False

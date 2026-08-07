@@ -30,29 +30,22 @@ if 'force_view_update' not in st.session_state:
 if 'show_code' not in st.session_state:
     st.session_state.show_code = True
 
-# --- FUNZIONE PER GENERARE L'UTENSILE 3D (CONO + PARALLELEPIPEDA) ---
-def get_3d_tool_mesh(x0, y0, z0, b_deg, cone_len=15, cone_rad=5, box_w=20, box_h=20, box_len=35):
-    """
-    Crea le mesh 3D per l'utensile composto da:
-    1. Un cono di taglio alla punta
-    2. Un parallelepipedo (blocco/mandrino) collegato al cono
-    Orientati secondo l'angolo dell'asse B.
-    """
+# --- FUNZIONE PER GENERARE LE COORDINATE DELLA MESH DELL'UTENSILE ---
+def get_3d_tool_data(x0, y0, z0, b_deg, cone_len=15, cone_rad=5, box_w=20, box_h=20, box_len=35):
     b_rad = math.radians(b_deg)
     cos_b, sin_b = math.cos(b_rad), math.sin(b_rad)
     
     def transform(pts):
         pts = np.array(pts)
-        # Rotazione attorno all'asse Y (B) e traslazione a WCS (x0, y0, z0)
         rx = pts[:, 0] * cos_b + pts[:, 2] * sin_b + x0
         ry = pts[:, 1] + y0
         rz = -pts[:, 0] * sin_b + pts[:, 2] * cos_b + z0
         return rx, ry, rz
 
-    # 1. Geometria del Cono
+    # 1. Cono (Punta)
     n_pts = 16
     angles = np.linspace(0, 2 * np.pi, n_pts, endpoint=False)
-    cone_pts = [[0, 0, 0]]  # Punta utensile
+    cone_pts = [[0, 0, 0]]
     for a in angles:
         cone_pts.append([cone_rad * math.cos(a), cone_rad * math.sin(a), cone_len])
     
@@ -64,19 +57,13 @@ def get_3d_tool_mesh(x0, y0, z0, b_deg, cone_len=15, cone_rad=5, box_w=20, box_h
         c_j.append(m)
         c_k.append(next_m)
         
-    cone_mesh = go.Mesh3d(
-        x=c_x, y=c_y, z=c_z,
-        i=c_i, j=c_j, k=c_k,
-        color='#FF5722', name='Punta Utensile', opacity=0.95
-    )
-
-    # 2. Geometria del Parallelepipedo (Corpo / Mandrino)
+    # 2. Parallelepipedo (Mandrino / Corpo)
     hw, hh = box_w / 2.0, box_h / 2.0
     z1, z2 = cone_len, cone_len + box_len
     
     box_pts = [
-        [-hw, -hh, z1], [hw, -hh, z1], [hw, hh, z1], [-hw, hh, z1],  # Base inferiore
-        [-hw, -hh, z2], [hw, -hh, z2], [hw, hh, z2], [-hw, hh, z2]   # Base superiore
+        [-hw, -hh, z1], [hw, -hh, z1], [hw, hh, z1], [-hw, hh, z1],
+        [-hw, -hh, z2], [hw, -hh, z2], [hw, hh, z2], [-hw, hh, z2]
     ]
     b_x, b_y, b_z = transform(box_pts)
     
@@ -84,16 +71,13 @@ def get_3d_tool_mesh(x0, y0, z0, b_deg, cone_len=15, cone_rad=5, box_w=20, box_h
     b_j = [1, 2, 5, 6, 4, 7, 2, 6, 5, 6, 3, 7]
     b_k = [2, 3, 6, 7, 7, 3, 6, 7, 6, 2, 7, 6]
     
-    box_mesh = go.Mesh3d(
-        x=b_x, y=b_y, z=b_z,
-        i=b_i, j=b_j, k=b_k,
-        color='#78909C', name='Mandrino / Testa', opacity=0.85
-    )
-
-    return [cone_mesh, box_mesh]
+    return {
+        'cone': (c_x, c_y, c_z, c_i, c_j, c_k),
+        'box': (b_x, b_y, b_z, b_i, b_j, b_k)
+    }
 
 
-# --- SIDEBAR: Controlli e Caricamento File ---
+# --- SIDEBAR: Caricamento File ---
 st.sidebar.header("📁 Controllo File")
 uploaded_file = st.sidebar.file_uploader("Carica file SPF", type=["SPF", "spf", "txt"])
 
@@ -103,7 +87,6 @@ if uploaded_file is not None:
     
     if decoded_lines != st.session_state.lines:
         st.session_state.lines = decoded_lines
-        
         parsed = []
         last_b = 0.0  
         
@@ -129,8 +112,8 @@ if uploaded_file is not None:
         st.session_state.sim_idx = 0
         st.session_state.is_animating = False
         st.session_state.ui_rev += 1 
-        st.session_state.camera_base = dict(x=0, y=-2.5, z=0)  # Default Vista Y+
-        st.session_state.force_view_update = True  # Forziamo il reset della vista sull'estensione
+        st.session_state.camera_base = dict(x=0, y=-2.5, z=0)  # Default assoluto Vista Y+
+        st.session_state.force_view_update = True  # Zoom automatico sull'estensione all'avvio
 
 if st.session_state.parsed_points:
     st.sidebar.markdown("---")
@@ -171,7 +154,7 @@ if st.session_state.parsed_points:
 
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Opzioni Simulazione")
-    sim_speed = st.sidebar.slider("Velocità Animazione (secondi)", 0.01, 0.30, 0.05, 0.01)
+    sim_speed = st.sidebar.slider("Velocità Animazione (secondi)", 0.01, 0.20, 0.04, 0.01)
     st.session_state.show_code = st.sidebar.toggle("Mostra Codice G-code", value=st.session_state.show_code)
 
     # --- FRAMMENTO PRINCIPALE ---
@@ -227,30 +210,22 @@ if st.session_state.parsed_points:
         ys = [p['Y'] for p in st.session_state.parsed_points]
         zs = [p['Z'] for p in st.session_state.parsed_points]
         
-        # --- CALCOLO ESTENSIONE COMPLETA DEI PUNTI (ZOOM SU ESTENSIONE) ---
+        # --- CALCOLO ZOOM SULL'ESTENSIONE ---
         x_min, x_max = min(xs), max(xs)
         y_min, y_max = min(ys), max(ys)
         z_min, z_max = min(zs), max(zs)
         
-        # Calcolo dimensione massima per mantenere l'aspetto proporzionale
         max_dim = max(x_max - x_min, y_max - y_min, z_max - z_min, 20.0)
-        pad = max_dim * 0.15  # 15% di margine extra attorno ai punti
+        pad = max_dim * 0.15  
         
         cx, cy, cz = (x_min + x_max)/2, (y_min + y_max)/2, (z_min + z_max)/2
         half_len = (max_dim / 2) + pad
 
-        point_colors = []
-        for i in range(len(st.session_state.parsed_points)):
-            if i < sim_idx:
-                point_colors.append('#4CAF50')  # Verde (percorso eseguito)
-            elif i == sim_idx:
-                point_colors.append('#F44336')  # Rosso (punto attuale)
-            else:
-                point_colors.append('#2196F3')  # Blu (punti futuri)
+        point_colors = ['#4CAF50' if i < sim_idx else ('#F44336' if i == sim_idx else '#2196F3') for i in range(len(xs))]
                 
         fig = go.Figure()
 
-        # 1. Traccia Linea Percorso
+        # 1. Percorso Linea
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='lines',
@@ -258,7 +233,7 @@ if st.session_state.parsed_points:
             name='Percorso'
         ))
 
-        # 2. Traccia Punti
+        # 2. Punti
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='markers+text',
@@ -269,12 +244,21 @@ if st.session_state.parsed_points:
             name='Punti'
         ))
 
-        # 3. Traccia Utensile 3D (Cono + Parallelepipedo)
-        tool_meshes = get_3d_tool_mesh(x_act, y_act, z_act, b_act)
-        for mesh in tool_meshes:
-            fig.add_trace(mesh)
+        # 3. Utensile 3D (Cono + Parallelepipedo dinamici)
+        tool_data = get_3d_tool_data(x_act, y_act, z_act, b_act)
+        c_x, c_y, c_z, c_i, c_j, c_k = tool_data['cone']
+        b_x, b_y, b_z, b_i, b_j, b_k = tool_data['box']
+
+        fig.add_trace(go.Mesh3d(
+            x=c_x, y=c_y, z=c_z, i=c_i, j=c_j, k=c_k,
+            color='#FF5722', name='Punta Utensile', opacity=0.95
+        ))
+        fig.add_trace(go.Mesh3d(
+            x=b_x, y=b_y, z=b_z, i=b_i, j=b_j, k=b_k,
+            color='#78909C', name='Mandrino / Testa', opacity=0.85
+        ))
         
-        # 4. Marker Punta Utensile
+        # 4. Marker Punta
         fig.add_trace(go.Scatter3d(
             x=[x_act], y=[y_act], z=[z_act],
             mode='markers',
@@ -282,7 +266,6 @@ if st.session_state.parsed_points:
             name='Punta'
         ))
 
-        # Impostazione Bounding Box per garantire lo Zoom all'Estensione
         scene_config = dict(
             xaxis=dict(title='X (mm)', range=[cx - half_len, cx + half_len]),
             yaxis=dict(title='Y (mm)', range=[cy - half_len, cy + half_len]),
@@ -290,7 +273,6 @@ if st.session_state.parsed_points:
             aspectmode='cube'
         )
 
-        # Gestione mirata della camera per evitare il reset della vista durante la rotazione dell'utente
         if st.session_state.force_view_update:
             scene_config['camera'] = dict(
                 eye=st.session_state.camera_base,
@@ -299,7 +281,7 @@ if st.session_state.parsed_points:
             st.session_state.force_view_update = False
 
         fig.update_layout(
-            uirevision=st.session_state.ui_rev,  # Mantiene lo zoom e la rotazione manuale dell'utente!
+            uirevision=st.session_state.ui_rev,  
             title=dict(text=f"Simulazione - Punto: {sim_idx} (B: {b_act:.2f}°)", font=dict(size=13)),
             scene=scene_config,
             margin=dict(l=0, r=0, b=0, t=30),
@@ -307,22 +289,15 @@ if st.session_state.parsed_points:
             showlegend=False
         )
 
-        config_mobile = {
-            'scrollZoom': True,
-            'displayModeBar': 'hover',
-            'responsive': True
-        }
+        config_mobile = {'scrollZoom': True, 'displayModeBar': 'hover', 'responsive': True}
 
         st.plotly_chart(fig, use_container_width=True, config=config_mobile)
         
-        # --- Visualizzatore Codice SPF (Richiudibile) ---
+        # --- Visualizzatore Codice SPF ---
         if st.session_state.show_code:
             with st.expander("📜 Visualizzatore Codice SPF (G-code)", expanded=True):
                 active_line_idx = p_act['line_index']
-                
-                code_html = """
-                <div id='code-container' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>
-                """
+                code_html = "<div id='code-container' style='height: 180px; overflow-y: scroll; background-color: #f8f9fa; border: 1px solid #ced4da; border-radius: 5px; padding: 8px; font-family: monospace; font-size: 12px;'>"
                 
                 for idx, line in enumerate(st.session_state.lines):
                     clean_line = line.strip()
@@ -331,18 +306,10 @@ if st.session_state.parsed_points:
                     else:
                         code_html += f"<div style='color: #495057; padding: 2px 4px; margin: 1px 0;'>&nbsp;&nbsp;&nbsp;&nbsp;{clean_line}</div>"
                         
-                code_html += """
-                </div>
-                <script>
-                    const activeLine = document.getElementById('active-line');
-                    if (activeLine) {
-                        activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                </script>
-                """
+                code_html += "</div><script>const activeLine = document.getElementById('active-line'); if (activeLine) { activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' }); }</script>"
                 st.markdown(code_html, unsafe_allow_html=True)
         
-        # Loop Animazione
+        # Loop Animazione Fluido
         if st.session_state.is_animating:
             if st.session_state.sim_idx < max_p:
                 st.session_state.sim_idx += 1
